@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chambers of the Pharaoh: Master Levels</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    body { background-color: #1a1612; color: #f4e8c1; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; }
+    .game-card { background: #2a221b; border: 3px solid #d4af37; border-radius: 12px; width: 100%; max-width: 540px; padding: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.8); text-align: center; }
+    #chamber-title { color: #f39c12; margin-bottom: 8px; font-size: 1.3rem; }
+    #chamber-desc { margin-bottom: 20px; font-size: 0.9rem; line-height: 1.4; color: #dcd0ab; }
+    
+    .viewport { background: #14100d; border: 2px inset #5c4a30; border-radius: 8px; min-height: 190px; padding: 16px; display: flex; flex-direction: column; justify-content: center; align-items: center; margin-bottom: 16px; position: relative; }
+    
+    .visual-containers { display: flex; justify-content: space-around; width: 100%; align-items: flex-end; }
+    .container-wrapper { display: flex; flex-direction: column; align-items: center; }
+    .vessel { border: 2px solid #d4af37; border-top: none; width: 50px; background: rgba(0,0,0,0.5); position: relative; border-radius: 0 0 6px 6px; overflow: hidden; }
+    .urn5 { height: 90px; }
+    .urn3 { height: 60px; }
+    .basin { height: 75px; width: 65px; border-color: #e74c3c; }
+    .water-fill { background: #3498db; width: 100%; position: absolute; bottom: 0; transition: height 0.3s ease; }
+    .vessel-label { font-size: 0.75rem; margin-top: 6px; color: #b5a47e; }
+
+    .grid-4x4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; width: 220px; }
+    .grid-3x3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; width: 160px; }
+    .grid-cell { width: 48px; height: 48px; background: #3a2e24; border: 1px solid #d4af37; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; cursor: pointer; border-radius: 4px; color: #fff; }
+    .grid-cell.active { background: #d4af37; color: #1a1612; font-weight: bold; }
+    
+    .slider-box { width: 100%; margin: 8px 0; text-align: left; }
+    .slider-box label { font-size: 0.85rem; color: #e67e22; }
+    .slider-box input { width: 100%; margin-top: 4px; accent-color: #d4af37; }
+
+    .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; }
+    .action-btn, .glyph-btn, .dial-btn, .tile-btn { background: #3a2e24; color: #f4e8c1; border: 1px solid #d4af37; padding: 10px; border-radius: 6px; cursor: pointer; font-size: 0.9rem; transition: background 0.2s; }
+    .action-btn:hover, .glyph-btn:hover, .dial-btn:hover, .tile-btn:hover { background: #524234; }
+    .full-btn { grid-column: span 2; }
+    .glyph-btn { font-size: 1.8rem; margin: 4px; padding: 8px 16px; }
+    .dial-btn { font-size: 1.2rem; font-weight: bold; width: 70px; height: 50px; margin: 4px; }
+    .tile-btn { font-size: 1rem; margin: 4px; padding: 10px 14px; }
+
+    .status-log { background: #0f0d0b; border: 1px solid #3a2e24; border-radius: 6px; padding: 10px; font-size: 0.85rem; color: #e67e22; min-height: 42px; display: flex; align-items: center; justify-content: center; }
+  </style>
+</head>
+<body>
+
+  <div class="game-card">
+    <h2 id="chamber-title">Loading...</h2>
+    <p id="chamber-desc">Loading level description...</p>
+    
+    <div id="puzzle-viewport" class="viewport"></div>
+    <div id="controls-panel" class="controls"></div>
+    <div class="status-log" id="logMsg">Welcome, master explorer.</div>
+  </div>
+
+  <script>
+    // ==========================================
+    // 🔊 AUDIO SYNTHESIZER
+    // ==========================================
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    function playSound(type) {
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+
+      if (type === 'click') {
+        osc.type = 'sine'; osc.frequency.setValueAtTime(600, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(200, audioCtx.currentTime + 0.08);
+        gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.08);
+        osc.connect(gain); osc.connect(audioCtx.destination);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.08);
+      } else if (type === 'pour') {
+        osc.type = 'triangle'; osc.frequency.setValueAtTime(180, audioCtx.currentTime);
+        osc.frequency.linearRampToValueAtTime(320, audioCtx.currentTime + 0.2);
+        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.25);
+        osc.connect(gain); osc.connect(audioCtx.destination);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.25);
+      } else if (type === 'success') {
+        [261.63, 329.63, 392.00, 523.25].forEach((freq, idx) => {
+          const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
+          o.type = 'square'; o.frequency.setValueAtTime(freq, audioCtx.currentTime + idx * 0.1);
+          g.gain.setValueAtTime(0.1, audioCtx.currentTime + idx * 0.1);
+          g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + idx * 0.1 + 0.25);
+          o.connect(g); o.connect(audioCtx.destination);
+          o.start(audioCtx.currentTime + idx * 0.1);
+          o.stop(audioCtx.currentTime + idx * 0.1 + 0.25);
+        });
+      } else if (type === 'trap') {
+        osc.type = 'sawtooth'; osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+        osc.frequency.linearRampToValueAtTime(80, audioCtx.currentTime + 0.3);
+        gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.35);
+        osc.connect(gain); osc.connect(audioCtx.destination);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.35);
+      }
+    }
+
+    // ==========================================
+    // 🎮 CHAMBER STATE ROUTER
+    // ==========================================
+    let currentChamber = 1;
+
+    function nextChamber() {
+      currentChamber++;
+      if (currentChamber === 2) loadChamber2();
+      else if (currentChamber === 3) loadChamber3();
+      else if (currentChamber === 4) loadChamber4();
+      else if (currentChamber === 5) loadChamber5();
+      else if (currentChamber === 6) loadChamber6();
+      else if (currentChamber === 7) loadChamber7();
+      else if (currentChamber === 8) loadChamber8();
+      else if (currentChamber === 9) loadChamber9();
+      else if (currentChamber === 10) loadChamber10();
+      else if (currentChamber === 11) loadChamber11();
+    }
+
+    function log(msg) { document.getElementById('logMsg').innerText = msg; }
+
+    // ------------------------------------------
+    // 🏺 CHAMBER 1: WATER SCALE
+    // ------------------------------------------
+    let u5 = 0, u3 = 0, basin = 0;
+
+    function loadChamber1() {
+      u5 = 0; u3 = 0; basin = 0;
+      document.getElementById('chamber-title').innerText = "🏺 CHAMBER 1: THE WATER SCALE";
+      document.getElementById('chamber-desc').innerHTML = "Pour <strong>exactly 4 Liters</strong> into the scale basin to unlock Door 1.";
+      document.getElementById('puzzle-viewport').innerHTML = `
+        <div class="visual-containers" style="width:100%;">
+          <div class="container-wrapper">
+            <div class="vessel urn5"><div id="fill5" class="water-fill"></div></div>
+            <div class="vessel-label">5L Urn (<span id="val5">0</span>/5L)</div>
+          </div>
+          <div class="container-wrapper">
+            <div class="vessel urn3"><div id="fill3" class="water-fill"></div></div>
+            <div class="vessel-label">3L Urn (<span id="val3">0</span>/3L)</div>
+          </div>
+          <div class="container-wrapper">
+            <div class="vessel basin"><div id="fillBasin" class="water-fill"></div></div>
+            <div class="vessel-label">⚖️ Basin (<span id="valBasin">0</span>/4L)</div>
+          </div>
+        </div>`;
+      
+      document.getElementById('controls-panel').innerHTML = `
+        <button class="action-btn" onclick="fill5()">Fill 5L Urn</button>
+        <button class="action-btn" onclick="fill3()">Fill 3L Urn</button>
+        <button class="action-btn" onclick="pour5to3()">Pour 5L ➔ 3L</button>
+        <button class="action-btn" onclick="pour3to5()">Pour 3L ➔ 5L</button>
+        <button class="action-btn" onclick="empty5()">Empty 5L Urn</button>
+        <button class="action-btn" onclick="empty3()">Empty 3L Urn</button>
+        <button class="action-btn full-btn" onclick="pour5ToBasin()">Pour 5L ➔ Basin</button>
+        <button class="action-btn full-btn" style="background:#8b2b2b;" onclick="resetBasin()">Empty Basin</button>`;
+      updateUI1();
+    }
+
+    function updateUI1() {
+      if (!document.getElementById('val5')) return;
+      document.getElementById('val5').innerText = u5;
+      document.getElementById('val3').innerText = u3;
+      document.getElementById('valBasin').innerText = basin;
+      document.getElementById('fill5').style.height = `${(u5 / 5) * 100}%`;
+      document.getElementById('fill3').style.height = `${(u3 / 3) * 100}%`;
+      document.getElementById('fillBasin').style.height = `${(basin / 4) * 100}%`;
+    }
+
+    function fill5() { u5 = 5; updateUI1(); playSound('pour'); log("Filled 5L urn."); }
+    function fill3() { u3 = 3; updateUI1(); playSound('pour'); log("Filled 3L urn."); }
+    function empty5() { u5 = 0; updateUI1(); playSound('click'); log("Emptied 5L urn."); }
+    function empty3() { u3 = 0; updateUI1(); playSound('click'); log("Emptied 3L urn."); }
+    function pour5to3() { let t = Math.min(u5, 3 - u3); u5 -= t; u3 += t; updateUI1(); playSound('pour'); }
+    function pour3to5() { let t = Math.min(u3, 5 - u5); u3 -= t; u5 += t; updateUI1(); playSound('pour'); }
+    
+    function pour5ToBasin() {
+      if (u5 === 0) { log("5L urn is empty!"); playSound('click'); return; }
+      basin += u5; u5 = 0; updateUI1();
+      if (basin === 4) {
+        playSound('success'); log("🎉 CHAMBER 1 CLEAR! Proceeding to Chamber 2...");
+        setTimeout(() => { nextChamber(); }, 1800);
+      } else if (basin > 4) {
+        playSound('trap'); log("🚨 OVERFLOW TRAP! Basin reset."); basin = 0; updateUI1();
+      } else {
+        playSound('pour'); log(`Poured water into scale basin. Total in basin: ${basin}L.`);
+      }
+    }
+    function resetBasin() { basin = 0; updateUI1(); playSound('click'); }
+
+    // ------------------------------------------
+    // 𓀀 CHAMBER 2: HIEROGLYPH CODE
+    // ------------------------------------------
+    const targetSeq2 = ['👁️', '𓃭', '𓆣'];
+    let userSeq2 = [];
+
+    function loadChamber2() {
+      userSeq2 = [];
+      document.getElementById('chamber-title').innerText = "𓀀 CHAMBER 2: HIEROGLYPH CODE";
+      document.getElementById('chamber-desc').innerHTML = "Press the glyphs in correct order according to the ancient sequence: <strong>Eye ➔ Lion ➔ Scarab</strong>.";
+      document.getElementById('puzzle-viewport').innerHTML = `
+        <div style="font-size:1.8rem; letter-spacing: 10px; margin-bottom: 12px; min-height: 40px;" id="inputSeq2">_ _ _</div>
+        <div>
+          <button class="glyph-btn" onclick="pressGlyph2('𓆣')">𓆣</button>
+          <button class="glyph-btn" onclick="pressGlyph2('👁️')">👁️</button>
+          <button class="glyph-btn" onclick="pressGlyph2('𓃭')">𓃭</button>
+          <button class="glyph-btn" onclick="pressGlyph2('🐍')">🐍</button>
+        </div>`;
+      document.getElementById('controls-panel').innerHTML = `
+        <button class="action-btn full-btn" style="background:#8b2b2b;" onclick="resetSeq2()">Reset Input</button>`;
+      log("Select the 3 correct hieroglyphs.");
+    }
+
+    function pressGlyph2(symbol) {
+      if (userSeq2.length >= 3) return;
+      playSound('click');
+      userSeq2.push(symbol);
+      document.getElementById('inputSeq2').innerText = userSeq2.join(' ');
+      if (userSeq2.length === 3) {
+        if (JSON.stringify(userSeq2) === JSON.stringify(targetSeq2)) {
+          playSound('success');
+          log("🎉 CHAMBER 2 CLEAR! Unlocking Chamber 3...");
+          setTimeout(() => { nextChamber(); }, 1800);
+        } else {
+          playSound('trap');
+          log("🚨 WRONG SEQUENCE! The glyph wall resets.");
+          setTimeout(resetSeq2, 1000);
+        }
+      }
+    }
+    function resetSeq2() { userSeq2 = []; document.getElementById('inputSeq2').innerText = "_ _ _"; }
+
+    // ------------------------------------------
+    // ☀️ CHAMBER 3: REFLECTOR BEAMS
+    // ------------------------------------------
+    let angles3 = [0, 90, 180];
+
+    function loadChamber3() {
+      angles3 = [0, 90, 180];
+      document.getElementById('chamber-title').innerText = "☀️ CHAMBER 3: SUN BEAM ALIGNMENT";
+      document.getElementById('chamber-desc').innerHTML = "Rotate the 3 solar mirrors so the light beam hits the target eye at <strong>45° ➔ 135° ➔ 90°</strong>.";
+      document.getElementById('puzzle-viewport').innerHTML = `
+        <div style="display:flex; justify-content:space-around; width:100%;">
+          <div>🪞 Mirror 1<br><button class="dial-btn" id="m0" onclick="rotateMirror(0)">0°</button></div>
+          <div>🪞 Mirror 2<br><button class="dial-btn" id="m1" onclick="rotateMirror(1)">0°</button></div>
+          <div>🪞 Mirror 3<br><button class="dial-btn" id="m2" onclick="rotateMirror(2)">0°</button></div>
+        </div>`;
+      document.getElementById('controls-panel').innerHTML = `
+        <button class="action-btn full-btn" onclick="checkBeam3()">Align Light Beam</button>`;
+      updateMirrors3();
+      log("Click mirrors to rotate by 45°.");
+    }
+
+    function rotateMirror(idx) {
+      playSound('click');
+      angles3[idx] = (angles3[idx] + 45) % 360;
+      updateMirrors3();
+    }
+    function updateMirrors3() {
+      for(let i=0; i<3; i++) document.getElementById(`m${i}`).innerText = `${angles3[i]}°`;
+    }
+    function checkBeam3() {
+      if (angles3[0] === 45 && angles3[1] === 135 && angles3[2] === 90) {
+        playSound('success');
+        log("🎉 CHAMBER 3 CLEAR! Beam hits crystal target!");
+        setTimeout(() => { nextChamber(); }, 1800);
+      } else {
+        playSound('trap');
+        log("🚨 LIGHT MISALIGNED! Adjust mirror angles.");
+      }
+    }
+
+    // ------------------------------------------
+    // ⚖️ CHAMBER 4: ANUBIS WEIGHT BALANCE (Sum 16)
+    // ------------------------------------------
+    let leftPan4 = 0, rightPan4 = 0;
+
+    function loadChamber4() {
+      leftPan4 = 0; rightPan4 = 0;
+      document.getElementById('chamber-title').innerText = "⚖️ CHAMBER 4: SCALES OF ANUBIS";
+      document.getElementById('chamber-desc').innerHTML = "Add gold coins to balance both scale pans equally at <strong>16kg each</strong>.";
+      document.getElementById('puzzle-viewport').innerHTML = `
+        <div style="display:flex; justify-content:space-between; width:100%; font-size:1.1rem;">
+          <div>Left Pan: <strong id="lp4">0</strong>/16kg</div>
+          <div>Right Pan: <strong id="rp4">0</strong>/16kg</div>
+        </div>`;
+      document.getElementById('controls-panel').innerHTML = `
+        <button class="action-btn" onclick="addWeight4('L', 3)">+3kg Left</button>
+        <button class="action-btn" onclick="addWeight4('R', 3)">+3kg Right</button>
+        <button class="action-btn" onclick="addWeight4('L', 5)">+5kg Left</button>
+        <button class="action-btn" onclick="addWeight4('R', 5)">+5kg Right</button>
+        <button class="action-btn" onclick="addWeight4('L', 8)">+8kg Left</button>
+        <button class="action-btn" onclick="addWeight4('R', 8)">+8kg Right</button>
+        <button class="action-btn full-btn" style="background:#8b2b2b;" onclick="resetScales4()">Clear Scale</button>`;
+      log("Balance left and right scale weight.");
+    }
+
+    function addWeight4(pan, val) {
+      playSound('pour');
+      if (pan === 'L') leftPan4 += val;
+      if (pan === 'R') rightPan4 += val;
+      document.getElementById('lp4').innerText = leftPan4;
+      document.getElementById('rp4').innerText = rightPan4;
+
+      if (leftPan4 === 16 && rightPan4 === 16) {
+        playSound('success');
+        log("🎉 CHAMBER 4 CLEAR! Anubis approves your balance.");
+        setTimeout(() => { nextChamber(); }, 1800);
+      } else if (leftPan4 > 16 || rightPan4 > 16) {
+        playSound('trap');
+        log("🚨 OVERWEIGHT! The scale tilts and resets.");
+        setTimeout(resetScales4, 1000);
+      }
+    }
+    function resetScales4() {
+      leftPan4 = 0; rightPan4 = 0;
+      document.getElementById('lp4').innerText = 0;
+      document.getElementById('rp4').innerText = 0;
+    }
+
+    // ------------------------------------------
+    // 🐍 CHAMBER 5: COBRA SNAKE DIALS
+    // ------------------------------------------
+    let dials5 = [0, 0, 0];
+
+    function loadChamber5() {
+      dials5 = [0, 0, 0];
+      document.getElementById('chamber-title').innerText = "🐍 CHAMBER 5: COBRA SNAKE DIALS";
+      document.getElementById('chamber-desc').innerHTML = "Turn the 3 venom dials to match: <strong>Dial 1 + Dial 2 = Dial 3</strong> AND total sum = <strong>15</strong>.";
+      document.getElementById('puzzle-viewport').innerHTML = `
+        <div style="display:flex; justify-content:space-around; width:100%;">
+          <div>Dial 1<br><button class="dial-btn" id="d0" onclick="spinDial5(0)">0</button></div>
+          <div>Dial 2<br><button class="dial-btn" id="d1" onclick="spinDial5(1)">0</button></div>
+          <div>Dial 3<br><button class="dial-btn" id="d2" onclick="spinDial5(2)">0</button></div>
+        </div>`;
+      document.getElementById('controls-panel').innerHTML = `
+        <button class="action-btn full-btn" onclick="verifyDials5()">Disarm Cobra Lock</button>`;
+      log("Set dials so D1 + D2 = D3, and total sum equals 15.");
+    }
+
+    function spinDial5(idx) {
+      playSound('click');
+      dials5[idx] = (dials5[idx] + 1) % 10;
+      document.getElementById(`d${idx}`).innerText = dials5[idx];
+    }
+
+    function verifyDials5() {
+      const sum = dials5[0] + dials5[1] + dials5[2];
+      if (sum === 15 && (dials5[0] + dials5[1] === dials5[2])) {
+        playSound('success');
+        log("🎉 CHAMBER 5 CLEAR! Cobra disarmed!");
+        setTimeout(() => { nextChamber(); }, 1800);
+      } else {
+        playSound('trap');
+        log("🚨 COBRA TRAP! Try 3 + 4 = 7 or similar sequence totaling 15.");
+      }
+    }
+
+    // ------------------------------------------
+    // 🏛️ CHAMBER 6: ELEMENTAL RUNES
+    // ------------------------------------------
+    let sequence6 = [];
+
+    function loadChamber6() {
+      sequence6 = [];
+      document.getElementById('chamber-title').innerText = "🏛️ CHAMBER 6: THE ELEMENTAL RUNES";
+      document.getElementById('chamber-desc').innerHTML = "Activate elements in order: <strong>🔥 Fire ➔ 💧 Water ➔ 🪨 Earth ➔ 💨 Air</strong>.";
+      document.getElementById('puzzle-viewport').innerHTML = `
+        <div id="rune-display" style="font-size:1.6rem; margin-bottom:12px;">_ _ _ _</div>
+        <div>
+          <button class="tile-btn" onclick="pressRune6('🪨')">🪨 Earth</button>
+          <button class="tile-btn" onclick="pressRune6('🔥')">🔥 Fire</button>
+          <button class="tile-btn" onclick="pressRune6('💨')">💨 Air</button>
+          <button class="tile-btn" onclick="pressRune6('💧')">💧 Water</button>
+        </div>`;
+      document.getElementById('controls-panel').innerHTML = `
+        <button class="action-btn full-btn" style="background:#8b2b2b;" onclick="resetRunes6()">Reset Elements</button>`;
+      log("Select elements in natural order.");
+    }
+
+    function pressRune6(element) {
+      if (sequence6.length >= 4) return;
+      playSound('click');
+      sequence6.push(element);
+      document.getElementById('rune-display').innerText = sequence6.join(' ');
+
+      if (sequence6.length === 4) {
+        if (JSON.stringify(sequence6) === JSON.stringify(['🔥', '💧', '🪨', '💨'])) {
+          playSound('success');
+          log("🎉 CHAMBER 6 CLEAR! Proceeding to Chamber 7...");
+          setTimeout(() => { nextChamber(); }, 1800);
+        } else {
+          playSound('trap');
+          log("🚨 WRONG ORDER! The elemental seal resets.");
+          setTimeout(resetRunes6, 1000);
+        }
+      }
+    }
+    function resetRunes6() { sequence6 = []; document.getElementById('rune-display').innerText = "_ _ _ _"; }
+
+    // ------------------------------------------
+    // ⚡ CHAMBER 7: RUNE GRID MATRIX
+    // ------------------------------------------
+    let grid7 = Array(16).fill(false);
+
+    function loadChamber7() {
+      grid7 = [true, false, false, true, false, true, true, false, false, true, true, false, true, false, false, true];
+      document.getElementById('chamber-title').innerText = "⚡ CHAMBER 7: RUNE GRID MATRIX";
+      document.getElementById('chamber-desc').innerHTML = "Clicking a rune toggles itself and adjacent neighbors. <strong>Light up all 16 runes</strong>.";
+      renderGrid7();
+      document.getElementById('controls-panel').innerHTML = `
+        <button class="action-btn full-btn" style="background:#8b2b2b;" onclick="loadChamber7()">Reset Matrix</button>`;
+      log("Light up every rune cell.");
+    }
+
+    function renderGrid7() {
+      let html = '<div class="grid-4x4">';
+      grid7.forEach((val, idx) => {
+        html += `<div class="grid-cell ${val ? 'active' : ''}" onclick="toggleCell7(${idx})">${val ? '✨' : '⬛'}</div>`;
+      });
+      html += '</div>';
+      document.getElementById('puzzle-viewport').innerHTML = html;
+    }
+
+    function toggleCell7(idx) {
+      playSound('click');
+      const neighbors = [idx, idx - 4, idx + 4, idx % 4 !== 0 ? idx - 1 : -1, (idx + 1) % 4 !== 0 ? idx + 1 : -1];
+      neighbors.forEach(i => {
+        if (i >= 0 && i < 16) grid7[i] = !grid7[i];
+      });
+      renderGrid7();
+
+      if (grid7.every(cell => cell === true)) {
+        playSound('success');
+        log("🎉 CHAMBER 7 CLEAR! Matrix stabilized.");
+        setTimeout(nextChamber, 1800);
+      }
+    }
+
+    // ------------------------------------------
+    // 🌊 CHAMBER 8: THE SACRED CROSSING (Boat holds 2)
+    // ------------------------------------------
+    let leftSide8 = ['🐺', '🐐', '🥬'];
+    let rightSide8 = [];
+    let boat8 = [];
+    let boatPos8 = 'left';
+
+    function loadChamber8() {
+      leftSide8 = ['🐺', '🐐', '🥬']; rightSide8 = []; boat8 = []; boatPos8 = 'left';
+      document.getElementById('chamber-title').innerText = "🌊 CHAMBER 8: THE SACRED CROSSING";
+      document.getElementById('chamber-desc').innerHTML = "Transport the <strong>Jackal 🐺, Goat 🐐, and Papyrus 🥬</strong> across the Nile.<br>The boat can hold up to <strong>2 items</strong> safely together, but they cannot be left unattended on a bank!";
+      renderCrossing8();
+      log("Load up to 2 items into the boat and row across.");
+    }
+
+    function renderCrossing8() {
+      document.getElementById('puzzle-viewport').innerHTML = `
+        <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+          <div style="width:30%; background:#221a14; padding:10px; border-radius:6px; border:1px solid #5c4a30;">
+            <strong>WEST</strong><br>${leftSide8.join(' ') || '<em>Empty</em>'}
+          </div>
+          <div style="width:36%; border:2px dashed #d4af37; padding:10px; border-radius:6px; background:#1a140e;">
+            <strong>BOAT (${boatPos8.toUpperCase()})</strong><br>${boat8.join(' ') || '<em>Empty</em>'}
+          </div>
+          <div style="width:30%; background:#221a14; padding:10px; border-radius:6px; border:1px solid #5c4a30;">
+            <strong>EAST</strong><br>${rightSide8.join(' ') || '<em>Empty</em>'}
+          </div>
+        </div>`;
+
+      document.getElementById('controls-panel').innerHTML = `
+        <button class="action-btn" onclick="boardBoat8('🐺')">Load/Unload 🐺</button>
+        <button class="action-btn" onclick="boardBoat8('🐐')">Load/Unload 🐐</button>
+        <button class="action-btn" onclick="boardBoat8('🥬')">Load/Unload 🥬</button>
+        <button class="action-btn" onclick="loadChamber8()">Reset 🔄</button>
+        <button class="action-btn full-btn" style="background:#2c5282;" onclick="rowBoat8()">Row Boat (Max 2 in boat) 🚣</button>`;
+    }
+
+    function boardBoat8(item) {
+      if (boat8.includes(item)) {
+        playSound('click');
+        boat8 = boat8.filter(i => i !== item);
+        if (boatPos8 === 'left') leftSide8.push(item);
+        else rightSide8.push(item);
+      } else {
+        if (boat8.length >= 2) return log("Boat can hold a maximum of 2 items!");
+        let bank = boatPos8 === 'left' ? leftSide8 : rightSide8;
+        let idx = bank.indexOf(item);
+        if (idx !== -1) {
+          playSound('click');
+          bank.splice(idx, 1);
+          boat8.push(item);
+        } else {
+          return log(`${item} is on the other bank!`);
+        }
+      }
+      renderCrossing8();
+    }
+
+    function rowBoat8() {
+      if (boat8.length === 0) return log("The boat is empty!");
+      playSound('click');
+      boatPos8 = boatPos8 === 'left' ? 'right' : 'left';
+      renderCrossing8();
+
+      if (checkDanger8(leftSide8) || checkDanger8(rightSide8)) {
+        playSound('trap');
+        log("🚨 FAILURE! An item was left unattended and consumed on the bank!");
+        setTimeout(loadChamber8, 1800);
+      } else if (rightSide8.length === 3) {
+        playSound('success');
+        log("🎉 CHAMBER 8 CLEAR! Proceeding to Chamber 9...");
+        setTimeout(nextChamber, 1800);
+      }
+    }
+
+    function checkDanger8(bank) {
+      if (bank.includes('🐺') && bank.includes('🐐') && !bank.includes('🥬')) return true;
+      if (bank.includes('🐐') && bank.includes('🥬') && !bank.includes('🐺')) return true;
+      return false;
+    }
+
+    // ------------------------------------------
+    // 🔊 CHAMBER 9: ACOUSTIC RESONANCE
+    // ------------------------------------------
+    function loadChamber9() {
+      document.getElementById('chamber-title').innerText = "🔊 CHAMBER 9: ACOUSTIC RESONANCE";
+      document.getElementById('chamber-desc').innerHTML = "Tune 3 sound generators to meet constraints:<br>1. Pitch A + Pitch B = <strong>12</strong><br>2. Pitch B × Pitch C = <strong>20</strong><br>3. Pitch A + Pitch C = <strong>9</strong>";
+      
+      document.getElementById('puzzle-viewport').innerHTML = `
+        <div class="slider-box"><label>Generator A: <span id="vA">0</span></label><input type="range" id="sA" min="0" max="15" value="0" oninput="updateSliders9()"></div>
+        <div class="slider-box"><label>Generator B: <span id="vB">0</span></label><input type="range" id="sB" min="0" max="15" value="0" oninput="updateSliders9()"></div>
+        <div class="slider-box"><label>Generator C: <span id="vC">0</span></label><input type="range" id="sC" min="0" max="15" value="0" oninput="updateSliders9()"></div>
+      `;
+      document.getElementById('controls-panel').innerHTML = `
+        <button class="action-btn full-btn" onclick="checkFreq9()">Lock Frequencies</button>`;
+      log("Adjust sliders to match all three equations.");
+    }
+
+    function updateSliders9() {
+      document.getElementById('vA').innerText = document.getElementById('sA').value;
+      document.getElementById('vB').innerText = document.getElementById('sB').value;
+      document.getElementById('vC').innerText = document.getElementById('sC').value;
+    }
+
+    function checkFreq9() {
+      let a = parseInt(document.getElementById('sA').value);
+      let b = parseInt(document.getElementById('sB').value);
+      let c = parseInt(document.getElementById('sC').value);
+
+      if (a + b === 12 && b * c === 20 && a + c === 9) {
+        playSound('success');
+        log("🎉 CHAMBER 9 CLEAR! Proceeding to Chamber 10...");
+        setTimeout(nextChamber, 1800);
+      } else {
+        playSound('trap');
+        log("🚨 FREQUENCY MISMATCH! Check equations again.");
+      }
+    }
+
+    // ------------------------------------------
+    // 👁️ CHAMBER 10: PATTERN OF RA
+    // ------------------------------------------
+    const glyphs10 = ['☀️', '🌙', '⭐', '🔥'];
+    let pattern10 = [];
+    let playerInput10 = [];
+
+    function loadChamber10() {
+      pattern10 = ['☀️', '🔥', '🌙', '⭐', '☀️'];
+      playerInput10 = [];
+      document.getElementById('chamber-title').innerText = "👁️ CHAMBER 10: PATTERN OF RA";
+      document.getElementById('chamber-desc').innerHTML = "Memorize and repeat the 5-symbol sequence of Ra.";
+      
+      document.getElementById('puzzle-viewport').innerHTML = `
+        <button class="action-btn" onclick="playPattern10()">👁️ Show Sequence</button>
+        <div id="patternDisplay10" style="font-size:1.8rem; margin-top:12px; min-height:40px;">_ _ _ _ _</div>`;
+
+      document.getElementById('controls-panel').innerHTML = `
+        <button class="glyph-btn" onclick="pressSymbol10('☀️')">☀️</button>
+        <button class="glyph-btn" onclick="pressSymbol10('🌙')">🌙</button>
+        <button class="glyph-btn" onclick="pressSymbol10('⭐')">⭐</button>
+        <button class="glyph-btn" onclick="pressSymbol10('🔥')">🔥</button>`;
+      log("Click 'Show Sequence' to begin.");
+    }
+
+    function playPattern10() {
+      playSound('click');
+      let display = document.getElementById('patternDisplay10');
+      display.innerText = "Watch...";
+      setTimeout(() => {
+        pattern10.forEach((sym, idx) => {
+          setTimeout(() => {
+            playSound('click');
+            display.innerText = sym;
+          }, (idx + 1) * 600);
+        });
+        setTimeout(() => {
+          display.innerText = "_ _ _ _ _";
+          log("Now repeat the sequence!");
+        }, (pattern10.length + 1) * 600);
+      }, 400);
+    }
+
+    function pressSymbol10(sym) {
+      playSound('click');
+      playerInput10.push(sym);
+      document.getElementById('patternDisplay10').innerText = playerInput10.join(' ');
+
+      if (playerInput10.length === pattern10.length) {
+        if (JSON.stringify(playerInput10) === JSON.stringify(pattern10)) {
+          playSound('success');
+          log("🎉 CHAMBER 10 CLEAR! Proceeding to Chamber 11...");
+          setTimeout(nextChamber, 1800);
+        } else {
+          playSound('trap');
+          log("🚨 INCORRECT PATTERN! Try watching sequence again.");
+          playerInput10 = [];
+        }
+      }
+    }
+
+    // ------------------------------------------
+    // 👑 CHAMBER 11: KNIGHT'S PATH
+    // ------------------------------------------
+    let tourBoard11 = Array(9).fill(false);
+    let currentPos11 = -1;
+    let visitedCount11 = 0;
+
+    function loadChamber11() {
+      tourBoard11 = Array(9).fill(false); currentPos11 = -1; visitedCount11 = 0;
+      document.getElementById('chamber-title').innerText = "👑 CHAMBER 11: KNIGHT'S PATH";
+      document.getElementById('chamber-desc').innerHTML = "Move using <strong>Chess Knight L-shapes</strong> (2 steps straight, 1 turn). Visit all 9 tiles without repeating!";
+      renderTour11();
+      document.getElementById('controls-panel').innerHTML = `
+        <button class="action-btn full-btn" style="background:#8b2b2b;" onclick="loadChamber11()">Reset Board</button>`;
+      log("Pick any starting tile.");
+    }
+
+    function renderTour11() {
+      let html = '<div class="grid-3x3">';
+      tourBoard11.forEach((visited, idx) => {
+        let isCurrent = idx === currentPos11;
+        html += `<div class="grid-cell ${visited ? 'active' : ''}" onclick="moveKnight11(${idx})">${isCurrent ? '♞' : visited ? '✓' : ''}</div>`;
+      });
+      html += '</div>';
+      document.getElementById('puzzle-viewport').innerHTML = html;
+    }
+
+    function moveKnight11(targetIdx) {
+      if (currentPos11 === -1) {
+        playSound('click');
+        currentPos11 = targetIdx;
+        tourBoard11[targetIdx] = true;
+        visitedCount11 = 1;
+        renderTour11();
+        log("Now jump to valid Knight L-shape positions.");
+        return;
+      }
+
+      if (tourBoard11[targetIdx]) return log("Tile already visited!");
+
+      let r1 = Math.floor(currentPos11 / 3), c1 = currentPos11 % 3;
+      let r2 = Math.floor(targetIdx / 3), c2 = targetIdx % 3;
+      let dr = Math.abs(r1 - r2), dc = Math.abs(c1 - c2);
+
+      if ((dr === 1 && dc === 2) || (dr === 2 && dc === 1)) {
+        playSound('click');
+        currentPos11 = targetIdx;
+        tourBoard11[targetIdx] = true;
+        visitedCount11++;
+        renderTour11();
+
+        if (visitedCount11 === 9) {
+          playSound('success');
+          log("🏆 CONGRATULATIONS! You completed all Master Trials!");
+        }
+      } else {
+        playSound('trap');
+        log("🚨 INVALID MOVE! Knights must jump in an 'L' shape.");
+      }
+    }
+
+    // Initialize Game at Chamber 1
+    loadChamber1();
+  </script>
+</body>
+</html>
